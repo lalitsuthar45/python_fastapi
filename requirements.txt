@@ -7,3 +7,4 @@ python-dotenv
 pydantic
 bcrypt
 google-auth
+requests
