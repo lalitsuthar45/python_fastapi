@@ -66,3 +66,11 @@ class ReservationCreate(BaseModel):
     occasion: str
     table_type: str
     special_request: str
+
+
+class FavoriteCreate(BaseModel):
+    user_email: str
+    food_key: str
+    food_name: str
+    price: float
+    image: Optional[str] = None

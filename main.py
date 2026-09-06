@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -1199,6 +1198,163 @@ def cancel_reservation(
         "message":
             "Reservation Cancelled Successfully"
     }
+
+
+# =========================================================
+# FAVORITES
+# =========================================================
+
+@app.post("/favorites")
+def add_favorite(
+    favorite: schemas.FavoriteCreate,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    email = (
+        favorite.user_email
+        .strip()
+        .lower()
+    )
+
+    if email != current_user.email.lower():
+
+        raise HTTPException(
+            status_code=403,
+            detail="You can only manage your own favorites",
+        )
+
+    existing = (
+        db.query(modals.Favorite)
+        .filter(
+            modals.Favorite.user_email
+            == current_user.email,
+            modals.Favorite.food_key
+            == favorite.food_key,
+        )
+        .first()
+    )
+
+    if existing:
+
+        return {
+
+            "message": "Already in favorites",
+
+            "id": existing.id,
+        }
+
+    new_favorite = modals.Favorite(
+
+        user_email=current_user.email,
+
+        food_key=favorite.food_key,
+
+        food_name=favorite.food_name,
+
+        price=favorite.price,
+
+        image=favorite.image,
+    )
+
+    db.add(new_favorite)
+
+    db.commit()
+
+    db.refresh(new_favorite)
+
+    return {
+
+        "message": "Added to favorites",
+
+        "id": new_favorite.id,
+    }
+
+
+@app.delete("/favorites/{food_key}")
+def remove_favorite(
+    food_key: str,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    favorite = (
+        db.query(modals.Favorite)
+        .filter(
+            modals.Favorite.user_email
+            == current_user.email,
+            modals.Favorite.food_key
+            == food_key,
+        )
+        .first()
+    )
+
+    if not favorite:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Favorite not found",
+        )
+
+    db.delete(favorite)
+
+    db.commit()
+
+    return {
+
+        "message": "Removed from favorites"
+    }
+
+
+@app.get("/favorites/{user_email}")
+def get_favorites(
+    user_email: str,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    user_email = (
+        user_email
+        .strip()
+        .lower()
+    )
+
+    if user_email != current_user.email.lower():
+
+        raise HTTPException(
+            status_code=403,
+            detail="You can only access your own favorites",
+        )
+
+    favorites = (
+        db.query(modals.Favorite)
+        .filter(
+            modals.Favorite.user_email
+            == current_user.email
+        )
+        .order_by(
+            modals.Favorite.id.desc()
+        )
+        .all()
+    )
+
+    return [
+
+        {
+
+            "id": f.id,
+
+            "food_key": f.food_key,
+
+            "food_name": f.food_name,
+
+            "price": f.price,
+
+            "image": f.image,
+        }
+
+        for f in favorites
+    ]
 
 
 # =========================================================

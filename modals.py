@@ -64,3 +64,24 @@ class Reservation(Base):
     table_type = Column(String(100))
     special_request = Column(String(255))
     status = Column(String(50), default="Pending")
+
+
+# =========================================================
+# FAVORITES
+# Food items khud database mein nahi hain (wo frontend mein
+# hardcoded hain), isliye favorite ki poori details (naam,
+# price, image) yahin save karte hain. "food_key" ek unique
+# string hai (jaise "menu-1" ya "fullmenu-5") jo Home page
+# ke menu aur Full Menu page ke items ke IDs overlap hone se
+# bachata hai.
+# =========================================================
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_email = Column(String(100))
+    food_key = Column(String(100))
+    food_name = Column(String(100))
+    price = Column(Float)
+    image = Column(String(500), nullable=True)
