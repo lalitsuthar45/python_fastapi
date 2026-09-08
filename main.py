@@ -10,6 +10,8 @@ import uuid
 import os
 import random
 import smtplib
+
+from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from pydantic import BaseModel
@@ -41,12 +43,16 @@ from auth import (
 # OTP demo ke liye server memory me 10 minutes tak store hota hai.
 # =========================================================
 
+
+
+
+load_dotenv()
+
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 OTP_EXPIRY_MINUTES = 10
-
 otp_store = {}
 
 
