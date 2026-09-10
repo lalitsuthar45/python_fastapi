@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -7,14 +6,6 @@ from sqlalchemy import text
 from jose import jwt, JWTError
 import bcrypt
 import uuid
-import os
-import random
-import smtplib
-
-from dotenv import load_dotenv
-from datetime import datetime, timedelta
-from email.message import EmailMessage
-from pydantic import BaseModel
 
 from database import SessionLocal, engine
 import modals
@@ -28,66 +19,6 @@ from auth import (
     SECRET_KEY,
     ALGORITHM,
 )
-
-
-# =========================================================
-# EMAIL OTP - DEMO OTP SENT TO USER EMAIL
-# =========================================================
-# Environment variables:
-# SMTP_HOST=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_EMAIL=yourgmail@gmail.com
-# SMTP_PASSWORD=your_16_character_gmail_app_password
-#
-# Gmail ke liye normal password nahi, App Password use karein.
-# OTP demo ke liye server memory me 10 minutes tak store hota hai.
-# =========================================================
-
-
-
-
-load_dotenv()
-
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-OTP_EXPIRY_MINUTES = 10
-otp_store = {}
-
-
-class SendOtpRequest(BaseModel):
-    email: str
-
-
-class VerifyOtpRequest(BaseModel):
-    email: str
-    otp: str
-
-
-def send_otp_email(to_email: str, otp: str):
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        raise RuntimeError(
-            "Email service is not configured. Set SMTP_EMAIL and SMTP_PASSWORD."
-        )
-
-    message = EmailMessage()
-    message["Subject"] = "Savory Haven - Order Verification OTP"
-    message["From"] = SMTP_EMAIL
-    message["To"] = to_email
-    message.set_content(
-        "Hello,\n\n"
-        "Your Savory Haven order verification OTP is:\n\n"
-        f"{otp}\n\n"
-        f"This OTP is valid for {OTP_EXPIRY_MINUTES} minutes.\n\n"
-        "If you did not request this OTP, you can safely ignore this email.\n\n"
-        "Regards,\nSavory Haven"
-    )
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-        server.starttls()
-        server.login(SMTP_EMAIL, SMTP_PASSWORD)
-        server.send_message(message)
 
 
 # =========================================================
@@ -213,79 +144,6 @@ def get_current_user(
             status_code=401,
             detail="Invalid or expired authentication token",
         )
-
-
-# =========================================================
-# EMAIL OTP - SEND
-# =========================================================
-
-@app.post("/send-otp")
-def send_otp(
-    data: SendOtpRequest,
-    current_user=Depends(get_current_user),
-):
-    email = data.email.strip().lower()
-
-    if not email or "@" not in email or "." not in email.split("@")[-1]:
-        raise HTTPException(status_code=400, detail="Please enter a valid email address")
-
-    otp = str(random.randint(100000, 999999))
-    otp_store[email] = {
-        "otp": otp,
-        "expires_at": datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES),
-    }
-
-    try:
-        send_otp_email(email, otp)
-    except Exception as error:
-        otp_store.pop(email, None)
-        print("OTP Email Error:", error)
-        raise HTTPException(
-            status_code=500,
-            detail="OTP email could not be sent. Please check SMTP configuration.",
-        )
-
-    return {
-        "message": f"OTP sent successfully to {email}",
-        "demo_otp": otp,
-        "expires_in_minutes": OTP_EXPIRY_MINUTES,
-    }
-
-
-# =========================================================
-# EMAIL OTP - VERIFY
-# =========================================================
-
-@app.post("/verify-otp")
-def verify_otp(
-    data: VerifyOtpRequest,
-    current_user=Depends(get_current_user),
-):
-    email = data.email.strip().lower()
-    entered_otp = data.otp.strip()
-
-    if not email or not entered_otp:
-        raise HTTPException(status_code=400, detail="Email and OTP are required")
-
-    saved = otp_store.get(email)
-
-    if not saved:
-        raise HTTPException(status_code=400, detail="OTP not found. Please send a new OTP.")
-
-    if datetime.utcnow() > saved["expires_at"]:
-        otp_store.pop(email, None)
-        raise HTTPException(status_code=400, detail="OTP expired. Please send a new OTP.")
-
-    if entered_otp != saved["otp"]:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    otp_store.pop(email, None)
-
-    return {
-        "message": "OTP verified successfully",
-        "verified": True,
-        "email": email,
-    }
 
 
 # =========================================================
@@ -1340,6 +1198,163 @@ def cancel_reservation(
         "message":
             "Reservation Cancelled Successfully"
     }
+
+
+# =========================================================
+# FAVORITES
+# =========================================================
+
+@app.post("/favorites")
+def add_favorite(
+    favorite: schemas.FavoriteCreate,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    email = (
+        favorite.user_email
+        .strip()
+        .lower()
+    )
+
+    if email != current_user.email.lower():
+
+        raise HTTPException(
+            status_code=403,
+            detail="You can only manage your own favorites",
+        )
+
+    existing = (
+        db.query(modals.Favorite)
+        .filter(
+            modals.Favorite.user_email
+            == current_user.email,
+            modals.Favorite.food_key
+            == favorite.food_key,
+        )
+        .first()
+    )
+
+    if existing:
+
+        return {
+
+            "message": "Already in favorites",
+
+            "id": existing.id,
+        }
+
+    new_favorite = modals.Favorite(
+
+        user_email=current_user.email,
+
+        food_key=favorite.food_key,
+
+        food_name=favorite.food_name,
+
+        price=favorite.price,
+
+        image=favorite.image,
+    )
+
+    db.add(new_favorite)
+
+    db.commit()
+
+    db.refresh(new_favorite)
+
+    return {
+
+        "message": "Added to favorites",
+
+        "id": new_favorite.id,
+    }
+
+
+@app.delete("/favorites/{food_key}")
+def remove_favorite(
+    food_key: str,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    favorite = (
+        db.query(modals.Favorite)
+        .filter(
+            modals.Favorite.user_email
+            == current_user.email,
+            modals.Favorite.food_key
+            == food_key,
+        )
+        .first()
+    )
+
+    if not favorite:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Favorite not found",
+        )
+
+    db.delete(favorite)
+
+    db.commit()
+
+    return {
+
+        "message": "Removed from favorites"
+    }
+
+
+@app.get("/favorites/{user_email}")
+def get_favorites(
+    user_email: str,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
+    user_email = (
+        user_email
+        .strip()
+        .lower()
+    )
+
+    if user_email != current_user.email.lower():
+
+        raise HTTPException(
+            status_code=403,
+            detail="You can only access your own favorites",
+        )
+
+    favorites = (
+        db.query(modals.Favorite)
+        .filter(
+            modals.Favorite.user_email
+            == current_user.email
+        )
+        .order_by(
+            modals.Favorite.id.desc()
+        )
+        .all()
+    )
+
+    return [
+
+        {
+
+            "id": f.id,
+
+            "food_key": f.food_key,
+
+            "food_name": f.food_name,
+
+            "price": f.price,
+
+            "image": f.image,
+        }
+
+        for f in favorites
+    ]
 
 
 # =========================================================
